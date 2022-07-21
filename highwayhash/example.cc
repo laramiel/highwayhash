@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <iostream>
+#include <cstring>
 
 using namespace highwayhash;
 

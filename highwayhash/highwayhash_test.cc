@@ -39,6 +39,7 @@ namespace {
 
 // Known-good outputs are verified for all lengths in [0, 64].
 const size_t kMaxSize = 64;
+size_t gFailedCount = 0;
 
 #if PRINT_RESULTS
 void Print(const HHResult64 result) { printf("0x%016lXull,\n", result); }
@@ -64,7 +65,7 @@ void OnFailure(const char* target_name, const size_t size) {
 #ifdef HH_GOOGLETEST
   EXPECT_TRUE(false);
 #endif
-  exit(1);
+  gFailedCount++;
 }
 
 // Verifies every combination of implementation and input size. Returns which
@@ -363,6 +364,10 @@ void RunTests() {
   tested &= VerifyImplementations(kExpected128);
   tested &= VerifyImplementations(kExpected256);
   // Any failure causes immediate exit, so apparently all succeeded.
+  if (gFailedCount > 0) {
+    exit(1);
+  }
+
   HH_TARGET_NAME::ForeachTarget(tested, [](const TargetBits target) {
     printf("%10s: OK\n", TargetName(target));
   });
