@@ -3,87 +3,103 @@ project(highwayhash C CXX)
 
 cmake_minimum_required(VERSION 3.18)
 
+# BUILD_SHARED_LIBS is a standard CMake variable, but we declare it here to make
+# it prominent in the GUI.
+option(BUILD_SHARED_LIBS "Build library as shared." OFF)
 
-if(CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
-  set(ARCH "x86_64")
-elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL "amd64")
-  set(ARCH "x86_64")
-elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL "AMD64")
-  # cmake reports AMD64 on Windows, but we might be building for 32-bit.
-  if(CMAKE_SIZEOF_VOID_P EQUAL 8)
-    set(ARCH "x86_64")
-  else()
-    set(ARCH "x86")
-  endif()
-elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL "x86")
-  set(ARCH "x86")
-elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL "i386")
-  set(ARCH "x86")
-elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL "i686")
-  set(ARCH "x86")
-elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
-  set(ARCH "aarch64")
-elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64")
-  set(ARCH "aarch64")
-elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64e")
-  set(ARCH "aarch64")
-elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^arm*")
-  set(ARCH "arm")
-elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL "mips")
-  # Just to avoid the “unknown processor” error.
-  set(ARCH "generic")
-elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL "ppc64le")
-  set(ARCH "ppc64le")
-else()
-  message(FATAL_ERROR "Unknown processor:" ${CMAKE_SYSTEM_PROCESSOR})
+# Force PIC on unix when building shared libs
+# see: https://en.wikipedia.org/wiki/Position-independent_code
+if(BUILD_SHARED_LIBS AND UNIX)
+  option(CMAKE_POSITION_INDEPENDENT_CODE "Build with Position Independant Code." ON)
+endif()
+
+
+
+set(PROCESSOR_IS_ARM FALSE)
+set(PROCESSOR_IS_AARCH64 FALSE)
+set(PROCESSOR_IS_X86 FALSE)
+set(PROCESSOR_IS_POWER FALSE)
+
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)")
+  set(PROCESSOR_IS_AARCH64 TRUE)
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^arm")
+  set(PROCESSOR_IS_ARM TRUE)
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "(x86_64)|(AMD64|amd64)|(^i.86$)")
+  set(PROCESSOR_IS_X86 TRUE)
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(powerpc|ppc)")
+  set(PROCESSOR_IS_POWER TRUE)
 endif()
 
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CLANG)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -Wall -O3 -fPIC -pthread -Wno-maybe-uninitialized")
-  if(ARCH STREQUAL "arm")
+  if(PROCESSOR_IS_ARM)
     # aarch64 and ARM use the same code, although ARM usually needs an extra flag for NEON.
     SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mfloat-abi=hard -march=armv7-a -mfpu=neon")
   endif()
 endif()
 
 
-if(ARCH STREQUAL "aarch64" OR ARCH STREQUAL "arm")
-  set(HH_ARCH_SOURCES
-    highwayhash/hh_neon.cc
-  )
-  set(HH_ARCH_SOURCES
-    highwayhash/hh_neon.h
-  )
+#
+# library : highwayhash
+#
 
-elseif(ARCH STREQUAL "ppc64le")
-  set(HH_ARCH_SOURCES
-    highwayhash/hh_vsx.cc
-  )
-  set(HH_ARCH_INCLUDES 
-    highwayhash/hh_vsx.h
-  )
+set(HH_INCLUDES
+  ${PROJECT_SOURCE_DIR}/highwayhash/c_bindings.h
+  ${PROJECT_SOURCE_DIR}/highwayhash/highwayhash.h
+)
 
-  set_source_files_properties( highwayhash/benchmark.cc PROPERTIES COMPILE_FLAGS -mvsx)
-  set_source_files_properties( highwayhash/hh_vsx.cc PROPERTIES COMPILE_FLAGS -mvsx)
+set(HH_SOURCES
 
+  ${PROJECT_SOURCE_DIR}/highwayhash/c_bindings.cc
+  ${PROJECT_SOURCE_DIR}/highwayhash/hh_portable.cc
+  ${PROJECT_SOURCE_DIR}/highwayhash/arch_specific.cc
 
-elseif(ARCH STREQUAL "x86" OR ARCH STREQUAL "x86_64")
-  set(HH_ARCH_SOURCES
-    highwayhash/hh_avx2.cc
-    highwayhash/hh_sse41.cc
-  )
-  set(HH_ARCH_INCLUDES
-    highwayhash/hh_avx2.h
-    highwayhash/hh_sse41.h
-  )
+  ${PROJECT_SOURCE_DIR}/highwayhash/scalar_sip_tree_hash.cc
+  ${PROJECT_SOURCE_DIR}/highwayhash/sip_hash.cc
+  ${PROJECT_SOURCE_DIR}/highwayhash/sip_tree_hash.cc
+
+  ${PROJECT_SOURCE_DIR}/highwayhash/hh_portable.h
+  ${PROJECT_SOURCE_DIR}/highwayhash/state_helpers.h
+
+  ${PROJECT_SOURCE_DIR}/highwayhash/arch_specific.h
+  ${PROJECT_SOURCE_DIR}/highwayhash/compiler_specific.h
+  ${PROJECT_SOURCE_DIR}/highwayhash/load3.h
+  ${PROJECT_SOURCE_DIR}/highwayhash/vector128.h
+  ${PROJECT_SOURCE_DIR}/highwayhash/vector256.h
+  ${PROJECT_SOURCE_DIR}/highwayhash/endianess.h
+  ${PROJECT_SOURCE_DIR}/highwayhash/iaca.h
+  ${PROJECT_SOURCE_DIR}/highwayhash/hh_types.h
+  ${PROJECT_SOURCE_DIR}/highwayhash/hh_buffer.h
+
+  ${PROJECT_SOURCE_DIR}/highwayhash/scalar_sip_tree_hash.h
+  ${PROJECT_SOURCE_DIR}/highwayhash/sip_hash.h
+  ${PROJECT_SOURCE_DIR}/highwayhash/sip_tree_hash.h
+)
+
+if(PROCESSOR_IS_ARM OR PROCESSOR_IS_AARCH64)
+  list(APPEND HH_SOURCES  ${PROJECT_SOURCE_DIR}/highwayhash/hh_neon.cc)
+  list(APPEND HH_SOURCES  ${PROJECT_SOURCE_DIR}/highwayhash/hh_neon.h)
+
+elseif(PROCESSOR_IS_POWER)
+  list(APPEND HH_SOURCES  ${PROJECT_SOURCE_DIR}/highwayhash/hh_vsx.cc)
+  list(APPEND HH_SOURCES  ${PROJECT_SOURCE_DIR}/highwayhash/hh_vsx.h)
+
+  set_source_files_properties( ${PROJECT_SOURCE_DIR}/highwayhash/benchmark.cc PROPERTIES COMPILE_FLAGS -mvsx)
+  set_source_files_properties( ${PROJECT_SOURCE_DIR}/highwayhash/hh_vsx.cc PROPERTIES COMPILE_FLAGS -mvsx)
+
+elseif(PROCESSOR_IS_X86)
+  list(APPEND HH_SOURCES  ${PROJECT_SOURCE_DIR}/highwayhash/hh_avx2.cc)
+  list(APPEND HH_SOURCES  ${PROJECT_SOURCE_DIR}/highwayhash/hh_sse41.cc)
+  list(APPEND HH_SOURCES  ${PROJECT_SOURCE_DIR}/highwayhash/hh_avx2.h)
+  list(APPEND HH_SOURCES  ${PROJECT_SOURCE_DIR}/highwayhash/hh_sse41.h)
 
   # TODO: Portability: Have AVX2 be optional so benchmarking can be done on older machines.
-  set_source_files_properties( highwayhash/benchmark.cc  PROPERTIES COMPILE_FLAGS  -mavx2)
-  set_source_files_properties( highwayhash/sip_tree_hash.cc  PROPERTIES COMPILE_FLAGS  -mavx2)
-  set_source_files_properties( highwayhash/hh_avx2.cc  PROPERTIES COMPILE_FLAGS  -mavx2)
-  set_source_files_properties( highwayhash/hh_sse41.cc  PROPERTIES COMPILE_FLAGS  -msse4.1)
-  set_source_files_properties( highwayhash/hh_portable.cc  PROPERTIES COMPILE_FLAGS  -DHH_TARGET_NAME=Portable)
+  set_source_files_properties( ${PROJECT_SOURCE_DIR}/highwayhash/benchmark.cc  PROPERTIES COMPILE_FLAGS  -mavx2)
+  set_source_files_properties( ${PROJECT_SOURCE_DIR}/highwayhash/sip_tree_hash.cc  PROPERTIES COMPILE_FLAGS  -mavx2)
+  set_source_files_properties( ${PROJECT_SOURCE_DIR}/highwayhash/hh_avx2.cc  PROPERTIES COMPILE_FLAGS  -mavx2)
+  set_source_files_properties( ${PROJECT_SOURCE_DIR}/highwayhash/hh_sse41.cc  PROPERTIES COMPILE_FLAGS  -msse4.1)
+  set_source_files_properties( ${PROJECT_SOURCE_DIR}/highwayhash/hh_portable.cc  PROPERTIES COMPILE_FLAGS  -DHH_TARGET_NAME=Portable)
 
 else()
   # Unknown architecture.
@@ -91,57 +107,39 @@ else()
 endif()
 
 
-add_library(highwayhash)
-target_sources(highwayhash PRIVATE
+add_library(highwayhash ${HH_INCLUDES} ${HH_SOURCES})
+set_target_properties(highwayhash PROPERTIES PUBLIC_HEADER "${HH_INCLUDES}")
 
-  highwayhash/c_bindings.h
-  highwayhash/hh_portable.h
-  highwayhash/state_helpers.h
-  highwayhash/c_bindings.cc
-  highwayhash/hh_portable.cc
-
-  highwayhash/arch_specific.h
-  highwayhash/compiler_specific.h
-  highwayhash/arch_specific.cc
-  highwayhash/load3.h  
-  highwayhash/vector128.h  
-  highwayhash/vector256.h  
-  highwayhash/endianess.h  
-  highwayhash/iaca.h  
-  highwayhash/hh_types.h
-  highwayhash/hh_buffer.h
-
-  ${HH_ARCH_INCLUDES}
-  ${HH_ARCH_SOURCES}
-
-  highwayhash/scalar_sip_tree_hash.h
-  highwayhash/sip_hash.h
-  highwayhash/sip_tree_hash.h
-  highwayhash/scalar_sip_tree_hash.cc
-  highwayhash/sip_hash.cc
-  highwayhash/sip_tree_hash.cc
+target_include_directories(highwayhash
+  PUBLIC  $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}>
 )
-target_include_directories(highwayhash PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(highwayhash
+  PUBLIC $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/highwayhash>
+)
 
 if(NOT WIN32 AND NOT ANDROID)
   target_link_libraries(highwayhash pthread)
 endif()
 
+add_library(highwayhash::highwayhash ALIAS highwayhash)
 
+
+
+#
 # Tests
+#
 
-add_library(nanobenchmark)
-target_sources(nanobenchmark PRIVATE
-   highwayhash/nanobenchmark.h
-   highwayhash/nanobenchmark.cc
+add_library(nanobenchmark OBJECT
+   ${PROJECT_SOURCE_DIR}/highwayhash/nanobenchmark.h
+   ${PROJECT_SOURCE_DIR}/highwayhash/nanobenchmark.cc
 
-   highwayhash/instruction_sets.h
-   highwayhash/os_specific.h  
-   highwayhash/profiler.h  
-   highwayhash/tsc_timer.h  
+   ${PROJECT_SOURCE_DIR}/highwayhash/instruction_sets.h
+   ${PROJECT_SOURCE_DIR}/highwayhash/os_specific.h
+   ${PROJECT_SOURCE_DIR}/highwayhash/profiler.h
+   ${PROJECT_SOURCE_DIR}/highwayhash/tsc_timer.h
 
-   highwayhash/instruction_sets.cc
-   highwayhash/os_specific.cc
+   ${PROJECT_SOURCE_DIR}/highwayhash/instruction_sets.cc
+   ${PROJECT_SOURCE_DIR}/highwayhash/os_specific.cc
 )
 target_include_directories(nanobenchmark PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
@@ -149,32 +147,31 @@ target_include_directories(nanobenchmark PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 add_executable(highwayhash_test)
 target_sources(highwayhash_test PRIVATE
 
-  highwayhash/highwayhash_test.cc
-  highwayhash/highwayhash_test_portable.cc
-  highwayhash/highwayhash_test_target.h
+  ${PROJECT_SOURCE_DIR}/highwayhash/highwayhash_test.cc
+  ${PROJECT_SOURCE_DIR}/highwayhash/highwayhash_test_portable.cc
+  ${PROJECT_SOURCE_DIR}/highwayhash/highwayhash_test_target.h
 )
 target_link_libraries(highwayhash_test highwayhash nanobenchmark)
 
 
 add_executable(vector_test)
 target_sources(vector_test PRIVATE
-   highwayhash/vector_test.cc
-   highwayhash/vector_test_portable.cc
-   highwayhash/vector_test_target.h
+   ${PROJECT_SOURCE_DIR}/highwayhash/vector_test.cc
+   ${PROJECT_SOURCE_DIR}/highwayhash/vector_test_portable.cc
+   ${PROJECT_SOURCE_DIR}/highwayhash/vector_test_target.h
 )
 target_link_libraries(vector_test highwayhash nanobenchmark)
 
 
-
-if(ARCH STREQUAL "aarch64" OR ARCH STREQUAL "arm")
+if(PROCESSOR_IS_ARM OR PROCESSOR_IS_AARCH64)
   target_sources(highwayhash_test PRIVATE
-    highwayhash/highwayhash_test_neon.cc
+    ${PROJECT_SOURCE_DIR}/highwayhash/highwayhash_test_neon.cc
   )
   target_sources(vector_test PRIVATE
-    highwayhash/vector_test_neon.cc
+    ${PROJECT_SOURCE_DIR}/highwayhash/vector_test_neon.cc
   )
 
-elseif(ARCH STREQUAL "x86" OR ARCH STREQUAL "x86_64")
+elseif(PROCESSOR_IS_X86)
   target_sources(highwayhash_test PRIVATE
     highwayhash/highwayhash_test_avx2.cc
     highwayhash/highwayhash_test_sse41.cc
@@ -190,7 +187,7 @@ elseif(ARCH STREQUAL "x86" OR ARCH STREQUAL "x86_64")
   set_source_files_properties( highwayhash/vector_test_sse41.cc  PROPERTIES COMPILE_FLAGS  -msse4.1)
 
 
-elseif(ARCH STREQUAL "ppc64le")
+elseif(PROCESSOR_IS_POWER)
   target_sources(highwayhash_test PRIVATE
     highwayhash/highwayhash_test_vsx.cc
   )
